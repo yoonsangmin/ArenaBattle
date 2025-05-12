@@ -24,6 +24,8 @@ protected:
 	virtual void PostNetInit() override;
 	
 	virtual void BeginPlay() override;
+
+	virtual void OnPossess(APawn* aPawn) override;
 	
 // HUD Section
 protected:

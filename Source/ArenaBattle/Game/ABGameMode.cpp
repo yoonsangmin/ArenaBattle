@@ -92,8 +92,8 @@ void AABGameMode::PostLogin(APlayerController* NewPlayer)
 void AABGameMode::StartPlay()
 {
 	AB_LOG(LogABNetwork, Log, TEXT("%s"), TEXT("Begin"));
-
+	
 	Super::StartPlay();
-
+	
 	AB_LOG(LogABNetwork, Log, TEXT("%s"), TEXT("End"));
 }
