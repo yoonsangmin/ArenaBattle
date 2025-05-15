@@ -20,6 +20,13 @@ public:
 	// Sets default values for this component's properties
 	UABCharacterStatComponent();
 
+	virtual void BeginPlay() override;
+	virtual void ReadyForReplication() override;
+	virtual  void GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const override;
+	
+	UFUNCTION()
+	void OnRep_CurrentHp();
+	
 protected:
 	virtual void InitializeComponent() override;
 
@@ -44,8 +51,8 @@ public:
 
 protected:
 	void SetHp(float NewHp);
-
-	UPROPERTY(Transient, VisibleInstanceOnly, Category = Stat)
+	
+	UPROPERTY(ReplicatedUsing = OnRep_CurrentHp, Transient, VisibleInstanceOnly, Category = Stat)
 	float CurrentHp;
 
 	UPROPERTY(Transient, VisibleInstanceOnly, Category = Stat)
