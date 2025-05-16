@@ -246,7 +246,7 @@ void AABFountain::Tick(float DeltaTime)
 
 void AABFountain::OnRep_ServerRotationYaw()
 {
-	AB_LOG(LogABNetwork, Log, TEXT("Yaw: %f"), ServerRotationYaw);
+	//AB_LOG(LogABNetwork, Log, TEXT("Yaw: %f"), ServerRotationYaw);
 	
 	// 변경된 회전 값을 반영해 새 회전 값 생성.
 	FRotator NewRotator = RootComponent->GetComponentRotation();
@@ -264,10 +264,10 @@ void AABFountain::OnRep_ServerRotationYaw()
 
 void AABFountain::OnRep_ServerLightColor()
 {
-	if (!HasAuthority())
-	{
-		AB_LOG(LogABNetwork, Log, TEXT("LightColor: %s"), *ServerLightColor.ToString());
-	}
+	// if (!HasAuthority())
+	// {
+	// 	AB_LOG(LogABNetwork, Log, TEXT("LightColor: %s"), *ServerLightColor.ToString());
+	// }
 
 	// 컴포넌트 검색.
 	//UPointLightComponent* PointLight = Cast<UPointLightComponent>(GetComponentByClass(UPointLightComponent::StaticClass()));
@@ -282,8 +282,11 @@ void AABFountain::OnRep_ServerLightColor()
 
 void AABFountain::MulticastRPCChangeLightColor_Implementation(const FLinearColor& NewLightColor)
 {
-	AB_LOG(LogABNetwork, Log, TEXT("LightColor: %s"), *NewLightColor.ToString());
-
+	if (!HasAuthority())
+	{
+		AB_LOG(LogABNetwork, Log, TEXT("LightColor: %s"), *NewLightColor.ToString());
+	}
+	
 	// 컴포넌트 검색.
 	//UPointLightComponent* PointLight = Cast<UPointLightComponent>(GetComponentByClass(UPointLightComponent::StaticClass()));
 	UPointLightComponent* PointLight = GetComponentByClass<UPointLightComponent>();
