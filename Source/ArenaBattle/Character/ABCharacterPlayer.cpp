@@ -21,7 +21,10 @@
 #include "GameFramework/GameStateBase.h"
 #include "EngineUtils.h"
 
-AABCharacterPlayer::AABCharacterPlayer()
+#include "ABCharacterMovementComponent.h"
+
+AABCharacterPlayer::AABCharacterPlayer(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer.SetDefaultSubobjectClass<UABCharacterMovementComponent>(ACharacter::CharacterMovementComponentName))
 {
 	// Camera
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
@@ -68,6 +71,12 @@ AABCharacterPlayer::AABCharacterPlayer()
 	if (nullptr != InputActionAttackRef.Object)
 	{
 		AttackAction = InputActionAttackRef.Object;
+	}
+
+	static ConstructorHelpers::FObjectFinder<UInputAction> InputActionTeleportRef(TEXT("/Script/EnhancedInput.InputAction'/Game/ArenaBattle/Input/Actions/IA_Teleport.IA_Teleport'"));
+	if (nullptr != InputActionTeleportRef.Object)
+	{
+		TeleportAction = InputActionTeleportRef.Object;
 	}
 
 	CurrentCharacterControlType = ECharacterControlType::Quater;
@@ -175,6 +184,9 @@ void AABCharacterPlayer::SetupPlayerInputComponent(class UInputComponent* Player
 	EnhancedInputComponent->BindAction(ShoulderLookAction, ETriggerEvent::Triggered, this, &AABCharacterPlayer::ShoulderLook);
 	EnhancedInputComponent->BindAction(QuaterMoveAction, ETriggerEvent::Triggered, this, &AABCharacterPlayer::QuaterMove);
 	EnhancedInputComponent->BindAction(AttackAction, ETriggerEvent::Triggered, this, &AABCharacterPlayer::Attack);
+
+	// 텔레포트 입력 바인딩.
+	EnhancedInputComponent->BindAction(TeleportAction, ETriggerEvent::Triggered, this, &AABCharacterPlayer::Teleport);
 }
 
 void AABCharacterPlayer::ChangeCharacterControl()
@@ -230,6 +242,12 @@ void AABCharacterPlayer::SetCharacterControlData(const UABCharacterControlData* 
 
 void AABCharacterPlayer::ShoulderMove(const FInputActionValue& Value)
 {
+	// 공격이 불가능할 때는 이동을 못 하도록 막기.
+	if (!bCanAttack)
+	{
+		return;
+	}
+	
 	FVector2D MovementVector = Value.Get<FVector2D>();
 
 	const FRotator Rotation = Controller->GetControlRotation();
@@ -252,6 +270,12 @@ void AABCharacterPlayer::ShoulderLook(const FInputActionValue& Value)
 
 void AABCharacterPlayer::QuaterMove(const FInputActionValue& Value)
 {
+	// 공격이 불가능할 때는 이동을 못 하도록 막기.
+	if (!bCanAttack)
+	{
+		return;
+	}
+	
 	FVector2D MovementVector = Value.Get<FVector2D>();
 
 	float InputSizeSquared = MovementVector.SquaredLength();
@@ -344,6 +368,18 @@ void AABCharacterPlayer::Attack()
 		// // 공격 애니메이션 재생.
 		// UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
 		// AnimInstance->Montage_Play(ComboActionMontage);
+	}
+}
+
+void AABCharacterPlayer::Teleport()
+{
+	AB_LOG(LogABTeleport, Log, TEXT("%s"), TEXT("Begin"));
+
+	UABCharacterMovementComponent* ABMovement = Cast<UABCharacterMovementComponent>(GetCharacterMovement());
+
+	if (ABMovement)
+	{
+		ABMovement->SetTeleportCommand();
 	}
 }
 
