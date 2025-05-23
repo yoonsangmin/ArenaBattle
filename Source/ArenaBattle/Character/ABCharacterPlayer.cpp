@@ -22,6 +22,10 @@
 #include "EngineUtils.h"
 
 #include "ABCharacterMovementComponent.h"
+#include "Components/WidgetComponent.h"
+
+#include "GameFramework/PlayerState.h"
+#include "Engine/AssetManager.h"
 
 AABCharacterPlayer::AABCharacterPlayer(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer.SetDefaultSubobjectClass<UABCharacterMovementComponent>(ACharacter::CharacterMovementComponentName))
@@ -104,42 +108,26 @@ void AABCharacterPlayer::SetDead()
 {
 	Super::SetDead();
 
-	APlayerController* PlayerController = Cast<APlayerController>(GetController());
-	if (PlayerController)
-	{
-		DisableInput(PlayerController);
-	}
+	// 플레이어 리스폰 시간.
+	const float RespawnTime = 5.0f;
+	
+	// 5초 후에 앞서 비활성화했던 항목 복구.
+	GetWorld()->GetTimerManager().SetTimer(DeadTimerHandle, this, &AABCharacterPlayer::ResetPlayer, RespawnTime, false);
+
+	// APlayerController* PlayerController = Cast<APlayerController>(GetController());
+	// if (PlayerController)
+	// {
+	// 	DisableInput(PlayerController);
+	// }
 }
 
 void AABCharacterPlayer::PossessedBy(AController* NewController)
 {
-	AB_LOG(LogABNetwork, Log, TEXT("%s"), TEXT("Begin"));
-
-	// PossessedBy 함수 호출 전 액터의 소유 확인.
-	AActor* OwnerActor = GetOwner();
-	if (OwnerActor)
-	{
-		AB_LOG(LogABNetwork, Log, TEXT("Owner: %s"), *OwnerActor->GetName());
-	}
-	else
-	{
-		AB_LOG(LogABNetwork, Log, TEXT("No Owner"));
-	}
-	
+	// 상위 로직에서 PlayerState 값이 컨트롤러부터 설정됨.
 	Super::PossessedBy(NewController);
 
-	// PossessedBy 함수 호출 후 액터의 소유 확인.
-	OwnerActor = GetOwner();
-	if (OwnerActor)
-	{
-		AB_LOG(LogABNetwork, Log, TEXT("Owner: %s"), *OwnerActor->GetName());
-	}
-	else
-	{
-		AB_LOG(LogABNetwork, Log, TEXT("No Owner"));
-	}
-	
-	AB_LOG(LogABNetwork, Log, TEXT("%s"), TEXT("End"));
+	// 서버의 경우 로컬 플레이어를 PossessedBy를 통해서 진행.
+	UpdateMeshFromPlayerState();
 }
 
 void AABCharacterPlayer::OnRep_Owner()
@@ -169,6 +157,33 @@ void AABCharacterPlayer::PostNetInit()
 	Super::PostNetInit();
 
 	AB_LOG(LogABNetwork, Log, TEXT("%s"), TEXT("End"));
+}
+
+float AABCharacterPlayer::TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent,
+	class AController* EventInstigator, AActor* DamageCauser)
+{
+	// 상위 클래스에서 처리한 값을 일단 사용.
+	const float ActualDamange = Super::TakeDamage(DamageAmount, DamageEvent, EventInstigator, DamageCauser);
+
+	// HP를 모두 소진하면 게임 모드에 알리기.
+	if (Stat->GetCurrentHp() <= 0.0f)
+	{
+		// 게임 모드를 인터페이스로 접근.
+		IABGameInterface* ABGameMode = GetWorld()->GetAuthGameMode<IABGameInterface>();
+		if (ABGameMode)
+		{
+			ABGameMode->OnPlayerKilled(EventInstigator, GetController(), this);
+		}
+	}
+	
+	return ActualDamange;
+}
+
+void AABCharacterPlayer::OnRep_PlayerState()
+{
+	Super::OnRep_PlayerState();
+
+	UpdateMeshFromPlayerState();
 }
 
 void AABCharacterPlayer::SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent)
@@ -325,17 +340,12 @@ void AABCharacterPlayer::Attack()
 			// 고려해야 할 것:
 			// 캐릭터 무브먼트 설정이나 공격 시간 등은
 			// 클라이언트가 악의적으로 변경(변조)할 수 있다는 사실을 가정해야 한다.
-			FTimerHandle Handle;
 			GetWorld()->GetTimerManager().SetTimer(
-				Handle,
-				FTimerDelegate::CreateLambda([&]()
-					{
-						//  공격이 끝나면 처리.
-						bCanAttack = true;
-
-						GetCharacterMovement()->SetMovementMode(EMovementMode::MOVE_Walking);
-					}),
-				AttackTime, false
+				AttackTimerHandle,
+				this,
+				&AABCharacterPlayer::ResetAttack,
+				AttackTime,
+				false
 			);
 
 			// 애니메이션 재생.
@@ -381,6 +391,59 @@ void AABCharacterPlayer::Teleport()
 	{
 		ABMovement->SetTeleportCommand();
 	}
+}
+
+void AABCharacterPlayer::ResetPlayer()
+{
+	// 애니메이션 정리.
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if (AnimInstance)
+	{
+		AnimInstance->StopAllMontages(0.0f);
+	}
+
+	// 현재 레벨을 초기값으로 되돌리기.
+	Stat->SetLevelStat(1);
+	
+	// 스탯 초기화.
+	Stat->ResetStat();
+
+	// 여러 항목 복구.
+	GetCharacterMovement()->SetMovementMode(EMovementMode::MOVE_Walking);
+
+	// 콜리전 켜기.
+	SetActorEnableCollision(true);
+
+	// HPBar UI 복구.
+	HpBar->SetHiddenInGame(false);
+
+	// 서버 로직.
+	if (HasAuthority())
+	{
+		IABGameInterface* ABGameMode = GetWorld()->GetAuthGameMode<IABGameInterface>();
+		if (ABGameMode)
+		{
+			// 리스폰 처리.
+			FTransform NewTransform = ABGameMode->GetRandomStartTransform();
+			TeleportTo(NewTransform.GetLocation(), NewTransform.GetRotation().Rotator());
+		}
+	}
+}
+
+void AABCharacterPlayer::ResetAttack()
+{
+	bCanAttack = true;
+	GetCharacterMovement()->SetMovementMode(EMovementMode::MOVE_Walking);
+}
+
+void AABCharacterPlayer::UpdateMeshFromPlayerState()
+{
+	//int32 RandIndex = FMath::RandRange(0, NPCMeshes.Num() - 1);
+
+	// PlayerId를 활용해서 인덱스 값 설정.
+	int32 MeshIndex = FMath::Clamp(GetPlayerState()->GetPlayerId() % PlayerMeshes.Num(), 0, GetPlayerState()->GetPlayerId() % PlayerMeshes.Num() - 1);
+	
+	MeshHandle = UAssetManager::Get().GetStreamableManager().RequestAsyncLoad(PlayerMeshes[MeshIndex], FStreamableDelegate::CreateUObject(this, &AABCharacterBase::MeshLoadCompleted));
 }
 
 void AABCharacterPlayer::PlayAttackAnimation()
@@ -529,13 +592,11 @@ void AABCharacterPlayer::ServerRPCAttack_Implementation(float AttackStartTime)
 	// 타이머 설정.
 	FTimerHandle Handle;
 	GetWorld()->GetTimerManager().SetTimer(
-		Handle,
-		FTimerDelegate::CreateLambda([&]()
-			{
-				bCanAttack = true;
-				OnRep_CanAttack();
-			}),
-		AttackTime - AttackTimeDifference, false
+		AttackTimerHandle,
+		this,
+		&AABCharacterPlayer::ResetAttack,
+		AttackTime - AttackTimeDifference,
+		false
 	);
 
 	// 클라이언트가 공격 요청을 한 시간 값 저장.
@@ -586,7 +647,7 @@ bool AABCharacterPlayer::ServerRPCAttack_Validate(float AttackStartTime)
 	// 이전에 기록된 공격 시간과 이번에 요청한 공격 시간과의 차이가
 	// 공격 애니메이션 길이보다 큰지 확인.
 	// 이 값이 공격 애니메이션 길이보다 작다면, 클라이언트를 의심해볼 수 있는 상황.
-	return (AttackStartTime - LastAttackStartTime) > AttackTime;
+	return (AttackStartTime - LastAttackStartTime) > (AttackTime - 0.4f);
 }
 
 void AABCharacterPlayer::MulticastRPCAttack_Implementation()
